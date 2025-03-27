@@ -75,6 +75,89 @@ aql query in model '{{ model.unique_id }}' has invalid syntax. Please choose a v
 
 
 with
+{% if primary_activity.relationship_selector == rs.time_spine -%}
+time_spine_entities as (
+    select
+        {{columns.customer}} as {{req}}{{columns.customer}},
+        {% if columns.anonymous_customer_id is defined %}
+        {{primary}}.{{columns.anonymous_customer_id}} as {{req}}{{columns.anonymous_customer_id}},
+        {% endif %}
+        {%- for column in primary_activity.columns %}
+        {{ dbt_activity_schema.select_column(stream, primary, column).column_sql }} as {{column.alias}},
+        {%- endfor %}
+        {{dbt_activity_schema.date_trunc(primary_activity.interval, 'min('~columns.ts~')')}} as period_start,
+        {{dbt_activity_schema.end_period_expression(primary_activity.end_period, columns.ts)}} as period_end,
+        {{dbt_activity_schema.date_diff(primary_activity.interval, dbt_activity_schema.date_trunc(primary_activity.interval, 'min('~columns.ts~')'), dbt_activity_schema.end_period_expression(primary_activity.end_period, columns.ts))}} as active_periods
+    from {% if primary_activity.filters is none %}{% if not skip_stream %}{{ stream_relation }}{% else %}{{ ref(primary_activity.model_name) }}{% endif %}{% else %}{{primary_activity_alias}}{{fs}}{% endif %} as {{primary}}
+    where true
+        {% if not skip_stream %}
+        and {{primary}}.{{columns.activity}} = {{dbt_activity_schema.clean_activity_name(stream, primary_activity.activity_name)}}
+        {% endif %}
+    group by
+        {{req}}{{columns.customer}},
+        {% if columns.anonymous_customer_id is defined %}
+        {{req}}{{columns.anonymous_customer_id}},
+        {% endif %}
+        {%- for column in primary_activity.columns %}
+        {{column.alias}}{% if not loop.last %},{% endif %}
+        {%- endfor %}
+),
+time_spine_metadata as (
+    select
+        min(period_start) as first_period_start,
+        max(active_periods) as max_active_periods
+    from time_spine_entities
+),
+number_spine as (
+{% if target.type != 'bigquery' %}
+with recursive number_spine as (
+    select 0 as n -- start the spine at 1
+    union all
+    select n + 1
+    from number_spine
+    where n <= (select max_active_periods from time_spine_metadata) -- adjust the upper limit as needed
+)
+select * from number_spine
+{% else %}
+select n
+from unnest(generate_array(0, 10000)) as n
+{% endif %}
+),
+joined_time_spine as (
+    select
+        {%- for column in primary_activity.columns %}
+        tse.{{column.alias}},
+        {%- endfor %}
+        ns.n,
+        tse.period_start,
+        {{ dbt_activity_schema.dateadd(primary_activity.interval, 'ns.n', 'tse.period_start') }} as {{columns.ts}},
+        {% if columns.anonymous_customer_id is defined %}
+        tse.{{req}}{{columns.anonymous_customer_id}},
+        {% endif %}
+        tse.{{req}}{{columns.customer}}
+    from time_spine_entities tse
+    left join number_spine ns
+        on tse.active_periods >= ns.n
+),
+{{primary_activity_alias}} as (
+    select
+        {%- for column in primary_activity.columns %}
+        {{column.alias}},
+        {%- endfor %}
+        {{columns.ts}},
+        {{ dbt_activity_schema.dateadd(primary_activity.interval, 1, columns.ts) }} as {{columns.activity_repeated_at}},
+        n+1 as {{columns.activity_occurrence}},
+        {{dbt_activity_schema.md5(req~columns.customer~' || '~columns.ts)}} as {{req}}{{columns.activity_id}},
+        {{req}}{{columns.customer}},
+        {% if columns.anonymous_customer_id is defined %}
+        {{req}}{{columns.anonymous_customer_id}},
+        {% endif %}
+        {{columns.ts}} as {{req}}{{columns.ts}},
+        n+1 as {{req}}{{columns.activity_occurrence}},
+        {{ dbt_activity_schema.dateadd(primary_activity.interval, 1, columns.ts) }} as {{req}}{{columns.activity_repeated_at}}
+    from joined_time_spine
+)
+{% else %}
 {% if primary_activity.filters is not none %}
 {{primary_activity_alias}}{{fs}} as (
     select
@@ -134,7 +217,7 @@ with
         and {{primary}}.{{columns.activity}} = {{dbt_activity_schema.clean_activity_name(stream, primary_activity.activity_name)}}
         {% endif %}
         and {{ primary_activity.relationship_clause }}
-){% if joined_activities|length > 0 %},{% endif %}
+){% endif %}{% if joined_activities|length > 0 %},{% endif %}
 {% for ja in joined_activities %}
 
 {# cte below only applies to filtered append activities since activity occurrence and next activity need to be recomputed for use in the join #}
@@ -239,6 +322,10 @@ with
 ){% if not loop.last %},{% endif %}
 {% endfor %}
 select
+    {%- if primary_activity.relationship_selector == rs.time_spine %}
+    {{primary}}.{{columns.ts}},
+    {{primary}}.{{req}}{{columns.activity_id}} as {{columns.activity_id}},
+    {%- endif %}
     {%- for column in primary_activity.columns %}
     {{primary}}.{{column.alias}}{% if loop.last and joined_activities|length == 0 -%}{% else -%},{%- endif -%}
     {%- endfor %}

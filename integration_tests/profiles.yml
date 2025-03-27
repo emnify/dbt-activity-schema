@@ -1,7 +1,3 @@
-config:
-    send_anonymous_usage_stats: False
-    use_colors: True
-
 integration_tests:
   outputs:
     duckdb:
@@ -23,8 +19,8 @@ integration_tests:
     bigquery:
       type: bigquery
       method: service-account
-      project: dbt-activity-schema
-      dataset: dbt_activity_schema_integration_tests
+      project: dbt-aql
+      dataset: dbt_aql_integration_tests
       threads: 4 # Must be a value of 1 or greater
       keyfile: "{{ env_var('GCP_KEYFILE_PATH') }}"
       OPTIONAL_CONFIG: VALUE
