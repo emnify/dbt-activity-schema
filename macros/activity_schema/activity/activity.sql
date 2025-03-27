@@ -7,9 +7,7 @@
     columns,
     nth=none,
     filters=none,
-    extra_joins=none,
-    interval=none,
-    end_period=none
+    extra_joins=none
 ) %}
 
 {%- set join_clauses = dbt_activity_schema._join_clause_map() -%}
@@ -52,9 +50,7 @@ aql query in model '{{ model.unique_id }}' has invalid syntax. Parsed invalid re
     columns=columns,
     nth=nth,
     filters=filters,
-    extra_joins=extra_joins,
-    interval=interval,
-    end_period=end_period
+    extra_joins=extra_joins
 )) -%}
 
 
