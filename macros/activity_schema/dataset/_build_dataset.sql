@@ -109,7 +109,7 @@ time_spine_metadata as (
     from time_spine_entities
 ),
 number_spine as (
-{% if target.type = 'redshift' %}
+{% if target.type == 'redshift' %}
 select n
 from GENERATE_SERIES(0, 10000) as t(n)
 {% elif target.type != 'bigquery' %}
