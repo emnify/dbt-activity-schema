@@ -82,9 +82,12 @@ with recursive number_spine(n) as (
     where n <= (
         select max(active_periods)
         from (
-            select  date_diff{{dbt_activity_schema.(primary_activity.interval, dbt_activity_schema.date_trunc(primary_activity.interval, 'min('~columns.ts~')'), dbt_activity_schema.end_period_expression(primary_activity.end_period, columns.ts))}} as active_periods
-            from {{ ref(stream) }}
-            where activity = '{{ primary_activity.activity_name }}'
+            select date_diff{{dbt_activity_schema.(primary_activity.interval, dbt_activity_schema.date_trunc(primary_activity.interval, 'min('~columns.ts~')'), dbt_activity_schema.end_period_expression(primary_activity.end_period, columns.ts))}} as active_periods
+            from {% if primary_activity.filters is none %}{% if not skip_stream %}{{ stream_relation }}{% else %}{{ ref(primary_activity.model_name) }}{% endif %}{% else %}{{primary_activity_alias}}{{fs}}{% endif %} as {{primary}}
+            where true
+        {% if not skip_stream %}
+        and {{primary}}.{{columns.activity}} = {{dbt_activity_schema.clean_activity_name(stream, primary_activity.activity_name)}}
+        {% endif %}
         ) x
     )
 ),
