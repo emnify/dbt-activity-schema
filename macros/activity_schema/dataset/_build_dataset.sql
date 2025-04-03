@@ -110,8 +110,9 @@ time_spine_metadata as (
 ),
 number_spine as (
 {% if target.type == 'redshift' %}
-select n
-from GENERATE_SERIES(0, 10000) as t(n)
+select row_number() OVER () - 1 as n
+from svl_query_summary 
+limit 10001  
 {% elif target.type != 'bigquery' %}
 with recursive number_spine as (
     select 0 as n -- start the spine at 1
