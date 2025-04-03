@@ -57,9 +57,6 @@ current_timestamp
 current_timestamp()
 {% endmacro %}
 
-{% macro redshift__current_timestamp() %}
-current_timestamp::timestamp
-{% endmacro %}
 
 {% macro dateadd(interval, periods, ts) %}
     {{ return(adapter.dispatch('dateadd', 'dbt_activity_schema')(interval, periods, ts)) }}
