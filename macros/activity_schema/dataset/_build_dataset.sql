@@ -74,7 +74,21 @@ aql query in model '{{ model.unique_id }}' has invalid syntax. Please choose a v
 {%- set joined_activities = ja_dict.values() -%}
 
 
-with
+with recursive number_spine(n) as (
+    select 0
+    union all
+    select n + 1
+    from number_spine
+    where n <= (
+        select max(active_periods)
+        from (
+            select  date_diff{{dbt_activity_schema.(primary_activity.interval, dbt_activity_schema.date_trunc(primary_activity.interval, 'min('~columns.ts~')'), dbt_activity_schema.end_period_expression(primary_activity.end_period, columns.ts))}} as active_periods
+            from {{ ref(stream) }}
+            where activity = '{{ primary_activity.activity_name }}'
+        ) x
+    )
+),
+
 {% if primary_activity.relationship_selector == rs.time_spine -%}
 time_spine_entities as (
     select
@@ -86,8 +100,8 @@ time_spine_entities as (
         {{ dbt_activity_schema.select_column(stream, primary, column).column_sql }} as {{column.alias}},
         {%- endfor %}
         {{dbt_activity_schema.date_trunc(primary_activity.interval, 'min('~columns.ts~')')}} as period_start,
-        {{dbt_activity_schema.end_period_expression(primary_activity.end_period, columns.ts)}} as period_end,
-        {{dbt_activity_schema.date_diff(primary_activity.interval, dbt_activity_schema.date_trunc(primary_activity.interval, 'min('~columns.ts~')'), dbt_activity_schema.end_period_expression(primary_activity.end_period, columns.ts))}} as active_periods
+        {{dbt_activity_schema.end_period_expression(primary_activity.end_period, columns.ts)}} as period_end,date_diff
+        {{dbt_activity_schema.(primary_activity.interval, dbt_activity_schema.date_trunc(primary_activity.interval, 'min('~columns.ts~')'), dbt_activity_schema.end_period_expression(primary_activity.end_period, columns.ts))}} as active_periods
     from {% if primary_activity.filters is none %}{% if not skip_stream %}{{ stream_relation }}{% else %}{{ ref(primary_activity.model_name) }}{% endif %}{% else %}{{primary_activity_alias}}{{fs}}{% endif %} as {{primary}}
     where true
         {% if not skip_stream %}
@@ -101,27 +115,6 @@ time_spine_entities as (
         {%- for column in primary_activity.columns %}
         {{column.alias}}{% if not loop.last %},{% endif %}
         {%- endfor %}
-),
-time_spine_metadata as (
-    select
-        min(period_start) as first_period_start,
-        max(active_periods) as max_active_periods
-    from time_spine_entities
-),
-number_spine as (
-{% if target.type != 'bigquery' %}
-with recursive number_spine as (
-    select 0 as n -- start the spine at 1
-    union all
-    select n + 1
-    from number_spine
-    where n <= (select max_active_periods from time_spine_metadata) -- adjust the upper limit as needed
-)
-select * from number_spine
-{% else %}
-select n
-from unnest(generate_array(0, 10000)) as n
-{% endif %}
 ),
 joined_time_spine as (
     select
