@@ -109,7 +109,10 @@ time_spine_metadata as (
     from time_spine_entities
 ),
 number_spine as (
-{% if target.type != 'bigquery' %}
+{% if target.type = 'redshift' %}
+select n
+from GENERATE_SERIES(0, 10000) as t(n)
+{% elif target.type != 'bigquery' %}
 with recursive number_spine as (
     select 0 as n -- start the spine at 1
     union all
